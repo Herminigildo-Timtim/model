@@ -11,11 +11,11 @@ try:
 except Exception as e:
     st.error(f"Error loading scalers: {e}")
 
-# Get the correct input size (trained on 7, so use 7)
-input_size = 7  # Change this to match the trained model's input size
+# Get the correct input size (from trained model)
+input_size = len(scalers['numeric'].feature_range)  # Automatically match input size
 
-# Load the trained model (Make sure this matches the training architecture)
-model = TCNForecaster(input_size=input_size, output_size=1, num_channels=[16, 32, 64])  # Ensure input_size is 7
+# Load the trained model
+model = TCNForecaster(input_size=input_size, output_size=1, num_channels=[16, 32, 64])
 
 # Load the model state
 try:
@@ -40,12 +40,18 @@ rho = st.number_input("Density (g/m³)")
 # Add an extra input field if necessary
 extra_feature = st.number_input("Extra Feature (if needed for input size match)", value=0.0)
 
+# Generate time-based features (matching the ones used during training)
+day_of_week = (datetime_feature // 24) % 7  # Approximate day of the week
+week = (datetime_feature // (24 * 7)) % 52  # Approximate week
+month = (datetime_feature // (24 * 30)) % 12  # Approximate month
+
 # Prepare input
 if st.button("Predict"):
     try:
-        input_data = np.array([[Tdew, rh, sh, H2OC, rho, datetime_feature, extra_feature]]).astype(np.float32)
+        # Ensure the input features match those used in training
+        input_data = np.array([[Tdew, rh, sh, H2OC, rho, datetime_feature, extra_feature, day_of_week, week, month]]).astype(np.float32)
 
-        # Normalize using the scalers
+        # Normalize input using the scalers
         input_data[:, :-1] = scalers['numeric'].transform(input_data[:, :-1])
 
         # Convert to tensor
@@ -56,6 +62,6 @@ if st.button("Predict"):
             prediction = model(input_tensor).item()
 
         st.write(f"Predicted Temperature (T degC): {prediction:.2f}")
-    
+
     except Exception as e:
         st.error(f"Prediction error: {e}")
