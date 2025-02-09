@@ -2,13 +2,13 @@ import torch
 import pandas as pd
 import numpy as np
 import scipy.sparse
-import joblib
 from sklearn.preprocessing import MinMaxScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from informer_model import Informer
 from mtcn_model import train_and_predict, TimeSeriesDataset
+import joblib
 
 
 def preprocess_data_feature(file_path, target_column):
@@ -54,9 +54,10 @@ def preprocess_data_feature(file_path, target_column):
             pass
     feature_names.append('datetime_feature')
 
+    # Ensure scalers always exist
     scalers = {
         'numeric': preprocessor.named_transformers_['num'],
-        'feature_count': features_with_datetime.shape[1]
+        'categorical': preprocessor.named_transformers_.get('cat', None)
     }
 
     return {
@@ -68,12 +69,14 @@ def preprocess_data_feature(file_path, target_column):
     }
 
 
+
 def perform_feature_selection(file_path, selection_method, selection_threshold):
     data_config = preprocess_data_feature(file_path, target_column='T (degC)')
 
     features = data_config['features']
     feature_names = data_config['feature_names']
 
+    # Ensure scalers exist
     if 'scalers' not in data_config:
         raise KeyError("Error: 'scalers' not found in preprocess_data_feature() output!")
 
@@ -93,6 +96,7 @@ def perform_feature_selection(file_path, selection_method, selection_threshold):
     selected_indices = [i for i, score in enumerate(importance_scores) if score.item() == max_importance]
     selected_feature_names = [feature_names[i] for i in selected_indices]
 
+    # Selecting features from the dataset
     selected_feature_data = features[:, selected_indices]
 
     final_df = pd.concat([
@@ -106,16 +110,18 @@ def perform_feature_selection(file_path, selection_method, selection_threshold):
         'full_dataframe': final_df,
         'date': data_config['date'],
         'target': data_config['target'],
-        'scalers': data_config['scalers']
+        'scalers': data_config['scalers']  # scalers included
     }
 
 
-def time_temporal_features_extraction(training_df):
-    training_df['day_of_week'] = training_df['Date Time'].dt.dayofweek
-    training_df['week'] = training_df['Date Time'].dt.isocalendar().week
-    training_df['month'] = training_df['Date Time'].dt.month
-    return training_df
 
+def time_temporal_features_extraction(training_df, features):
+    features['day_of_week'] = training_df['Date Time'].dt.dayofweek
+    features['week'] = training_df['Date Time'].dt.isocalendar().week
+    features['month'] = training_df['Date Time'].dt.month
+
+    return features
+    
 
 def collate_fn(batch):
     inputs = [item['inputs'] for item in batch]
@@ -133,31 +139,42 @@ def collate_fn(batch):
 def main():
     file_path = "jena_climate_2009_2016.csv/jena_climate_2009_2016.csv"
 
+    # Get selected features and preprocessed data
     selection_results = perform_feature_selection(file_path, 'importance', 0.5)
+    # selection_results = ["Date Time", "Tdew (degC)", "rh (%)", "sh (g/kg)", "H20C (mmol/mol)", "rho (g/m**3)"]
     training_df = selection_results['full_dataframe']
     training_df.ffill(inplace=True)
 
+    # Print the selected features
     print("Selected Features:", selection_results['selected_features'])
 
+    # Handle NaT and duplicate timestamps
     training_df.dropna(subset=['Date Time'], inplace=True)
     training_df.drop_duplicates(subset=['Date Time'], inplace=True)
 
-    training_df = time_temporal_features_extraction(training_df)
+    # Extract time-based temporal features
+    training_df = time_temporal_features_extraction(training_df, training_df)
 
+    # Update selected features list to include temporal features
     selected_feature_names = selection_results['selected_features'] + ['day_of_week', 'week', 'month']
 
-    features = training_df[selected_feature_names].values
+    # Prepare features and target
+    features = training_df[selected_feature_names].values  # Now includes temporal features
     targets = training_df['T (degC)'].values
 
+    # Ensure all features are numerical
     features = features.astype(np.float32)
 
+    # Convert to PyTorch tensors
     features_tensor = torch.FloatTensor(features)
     targets_tensor = torch.FloatTensor(targets)
 
+    # Training parameters
     sequence_length = 30
     num_epochs = 50
     batch_size = 250
 
+    # Train and predict using modified TCN model
     trainer, history = train_and_predict(
         features=features_tensor,
         targets=targets_tensor,
@@ -166,6 +183,7 @@ def main():
         batch_size=batch_size
     )
 
+    # Plot training history
     plt.figure(figsize=(12, 6))
     plt.plot(history['train_loss'], label='Train Loss')
     plt.plot(history['val_loss'], label='Validation Loss')
@@ -175,19 +193,24 @@ def main():
     plt.legend()
     plt.show()
 
-    torch.save(trainer.model.state_dict(), 'trained_model.pth')
-
-    joblib.dump(selection_results['scalers'], 'scalers.pkl')
-
-    print("Model and scalers saved successfully!")
-
-    test_dataset = TimeSeriesDataset(features, targets, sequence_length)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-
+    # Make predictions
     model = trainer.model
     model.eval()
     predictions = []
     actual_values = []
+
+    # TODO: add code here for saving the model as pkl file or joblib
+    # Save the trained model
+    torch.save(trainer.model.state_dict(), 'trained_model.pth')
+
+    # Save the scalers (important for feature transformation)
+    joblib.dump(selection_results['scalers'], 'scalers.pkl')
+
+    print("Model and scalers saved successfully!")
+
+    # Create dataset for testing
+    test_dataset = TimeSeriesDataset(features, targets, sequence_length)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     with torch.no_grad():
         for batch_x, batch_y in test_loader:
@@ -199,6 +222,7 @@ def main():
     predictions = np.concatenate(predictions)
     actual_values = np.concatenate(actual_values)
 
+    # Plot predictions vs actual values
     plt.figure(figsize=(12, 6))
     plt.plot(actual_values, label='Actual')
     plt.plot(predictions, label='Predicted', linestyle='--')
@@ -208,6 +232,7 @@ def main():
     plt.legend()
     plt.show()
 
+    # Print some sample predictions
     print("\nSample Predictions:")
     for i in range(10):
         print(f"Actual: {actual_values[i]:.4f}, Predicted: {predictions[i]:.4f}")
@@ -215,3 +240,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# TODO: Add a code for deployment to streamlit, you can have it in another file
