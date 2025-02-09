@@ -11,8 +11,9 @@ try:
 except Exception as e:
     st.error(f"Error loading scalers: {e}")
 
-# Get the correct input size (from trained model)
-input_size = len(scalers['numeric'].feature_range)  # Automatically match input size
+# Change this to match training input size
+input_size = 9  # Set to match the trained model
+
 
 # Load the trained model
 model = TCNForecaster(input_size=input_size, output_size=1, num_channels=[16, 32, 64])
