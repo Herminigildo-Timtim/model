@@ -3,7 +3,7 @@ import joblib
 import torch
 import numpy as np
 import pandas as pd
-from mtcn_model import TCNForecaster  # Import the correct trained model class
+from mtcn_model import TCNForecaster  # Import the trained model class
 
 # Load scalers
 try:
@@ -13,14 +13,21 @@ except Exception as e:
     st.error(f"Error loading scalers: {e}")
     st.stop()
 
-# Load model state and input size from saved file
+# Load model metadata (to get correct input size)
 try:
-    checkpoint = torch.load("trained_model.pth", map_location=torch.device('cpu'))
-    input_size = checkpoint['input_size']  # Retrieve saved input size
+    metadata = joblib.load('model_metadata.pkl')
+    input_size = metadata['input_size']
+    sequence_length = metadata['sequence_length']
+except Exception as e:
+    st.error(f"Error loading model metadata: {e}")
+    st.stop()
 
-    # Initialize model with correct input size
-    model = TCNForecaster(input_size=input_size, output_size=1, num_channels=[16, 32, 64])
-    model.load_state_dict(checkpoint['model_state_dict'])
+# Initialize the model correctly
+model = TCNForecaster(input_size=input_size, output_size=1, num_channels=[16, 32, 64])
+
+# Load the state_dict properly
+try:
+    model.load_state_dict(torch.load("trained_model.pth", map_location=torch.device('cpu')))
     model.eval()
     st.success("Model loaded successfully!")
 except Exception as e:
@@ -28,7 +35,7 @@ except Exception as e:
     st.stop()
 
 # Streamlit UI
-st.title("Time Series Prediction with TCN Model")
+st.title("Time Series Temperature Prediction")
 st.write("Enter values to predict temperature.")
 
 # Feature inputs
