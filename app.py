@@ -11,9 +11,8 @@ try:
 except Exception as e:
     st.error(f"Error loading scalers: {e}")
 
-# Change this to match training input size
-input_size = 6  # Set to match the trained model
-
+# Set correct input size (9 features based on training)
+input_size = 9
 
 # Load the trained model
 model = TCNForecaster(input_size=input_size, output_size=1, num_channels=[16, 32, 64])
@@ -30,18 +29,16 @@ except Exception as e:
 st.title("Time Series Prediction with TCN Model")
 st.write("Enter values to predict temperature.")
 
-# Input fields based on selected features
-datetime_feature = st.number_input("Datetime Feature (hours since start)")
+# Input fields for the correct 9 features
+p_mbar = st.number_input("Pressure (mbar)")
 Tdew = st.number_input("Tdew (degC)")
 rh = st.number_input("Relative Humidity (%)")
-sh = st.number_input("Specific Humidity (g/kg)")
+VPact = st.number_input("VPact (mbar)")
 H2OC = st.number_input("H2OC (mmol/mol)")
-rho = st.number_input("Density (g/m³)")
+max_wv = st.number_input("Max Wind Velocity (m/s)")
 
-# Add an extra input field if necessary
-extra_feature = st.number_input("Extra Feature (if needed for input size match)", value=0.0)
-
-# Generate time-based features (matching the ones used during training)
+# Add the missing 3 temporal features
+datetime_feature = st.number_input("Datetime Feature (hours since start)")
 day_of_week = (datetime_feature // 24) % 7  # Approximate day of the week
 week = (datetime_feature // (24 * 7)) % 52  # Approximate week
 month = (datetime_feature // (24 * 30)) % 12  # Approximate month
@@ -49,11 +46,11 @@ month = (datetime_feature // (24 * 30)) % 12  # Approximate month
 # Prepare input
 if st.button("Predict"):
     try:
-        # Ensure the input features match those used in training
-        input_data = np.array([[Tdew, rh, sh, H2OC, rho, datetime_feature, extra_feature, day_of_week, week, month]]).astype(np.float32)
+        # Ensure the input features match those used in training (9 features)
+        input_data = np.array([[p_mbar, Tdew, rh, VPact, H2OC, max_wv, day_of_week, week, month]]).astype(np.float32)
 
         # Normalize input using the scalers
-        input_data[:, :-1] = scalers['numeric'].transform(input_data[:, :-1])
+        input_data = scalers['numeric'].transform(input_data)
 
         # Convert to tensor
         input_tensor = torch.FloatTensor(input_data).unsqueeze(0)  # Add batch dimension
