@@ -9,17 +9,18 @@ from mtcn_model import TCNForecaster  # Import the correct trained model class
 try:
     scalers = joblib.load('scalers.pkl')
     numeric_scaler = scalers['numeric']
-    input_size = numeric_scaler.n_features_in_  # Automatically match input size
 except Exception as e:
     st.error(f"Error loading scalers: {e}")
     st.stop()
 
-# Load the trained model
-model = TCNForecaster(input_size=input_size, output_size=1, num_channels=[16, 32, 64])
-
-# Load the model state
+# Load model state and input size from saved file
 try:
-    model.load_state_dict(torch.load("trained_model.pth", map_location=torch.device('cpu')))
+    checkpoint = torch.load("trained_model.pth", map_location=torch.device('cpu'))
+    input_size = checkpoint['input_size']  # Retrieve saved input size
+
+    # Initialize model with correct input size
+    model = TCNForecaster(input_size=input_size, output_size=1, num_channels=[16, 32, 64])
+    model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
     st.success("Model loaded successfully!")
 except Exception as e:
@@ -30,7 +31,7 @@ except Exception as e:
 st.title("Time Series Prediction with TCN Model")
 st.write("Enter values to predict temperature.")
 
-# Feature inputs (ensure correct order and count)
+# Feature inputs
 st.subheader("Feature Inputs")
 
 datetime_feature = st.number_input("Datetime Feature (hours since start)", value=0.0)
@@ -45,7 +46,7 @@ day_of_week = (datetime_feature // 24) % 7  # Approximate day of the week
 week = (datetime_feature // (24 * 7)) % 52  # Approximate week
 month = (datetime_feature // (24 * 30)) % 12  # Approximate month
 
-# Placeholder for missing features
+# Handle extra features dynamically
 num_missing_features = input_size - 9  # Adjust dynamically
 extra_features = [st.number_input(f"Extra Feature {i+1}", value=0.0) for i in range(num_missing_features)]
 

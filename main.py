@@ -201,12 +201,16 @@ def main():
 
     # TODO: add code here for saving the model as pkl file or joblib
     # Save the trained model
-    torch.save(trainer.model.state_dict(), 'trained_model.pth')
+    torch.save({
+        'model_state_dict': trainer.model.state_dict(),
+        'input_size': features_tensor.shape[1]  # Save input size for later use
+    }, 'trained_model.pth')
 
     # Save the scalers (important for feature transformation)
     joblib.dump(selection_results['scalers'], 'scalers.pkl')
 
     print("Model and scalers saved successfully!")
+
 
     # Create dataset for testing
     test_dataset = TimeSeriesDataset(features, targets, sequence_length)
