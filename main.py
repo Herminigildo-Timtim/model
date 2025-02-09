@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from informer_model import Informer
 from mtcn_model import train_and_predict, TimeSeriesDataset
+import joblib
 
 
 def preprocess_data_feature(file_path, target_column):
@@ -37,7 +38,6 @@ def preprocess_data_feature(file_path, target_column):
         transformers.append(('cat', OneHotEncoder(handle_unknown='ignore'), categorical_cols))
 
     preprocessor = ColumnTransformer(transformers)
-
     transformed_features = preprocessor.fit_transform(feature_data)
 
     if scipy.sparse.issparse(transformed_features):
@@ -54,16 +54,20 @@ def preprocess_data_feature(file_path, target_column):
             pass
     feature_names.append('datetime_feature')
 
+    # Ensure scalers always exist
+    scalers = {
+        'numeric': preprocessor.named_transformers_['num'],
+        'categorical': preprocessor.named_transformers_.get('cat', None)
+    }
+
     return {
         'features': features_with_datetime,
         'feature_names': feature_names,
         'date': df['Date Time'],
         'target': target_series,
-        'scalers': {
-            'numeric': preprocessor.named_transformers_['num'],
-            'categorical': preprocessor.named_transformers_['cat'] if categorical_cols else None
-        }
+        'scalers': scalers  
     }
+
 
 
 def perform_feature_selection(file_path, selection_method, selection_threshold):
@@ -71,6 +75,10 @@ def perform_feature_selection(file_path, selection_method, selection_threshold):
 
     features = data_config['features']
     feature_names = data_config['feature_names']
+
+    # Ensure scalers exist
+    if 'scalers' not in data_config:
+        raise KeyError("Error: 'scalers' not found in preprocess_data_feature() output!")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     x = torch.tensor(features, dtype=torch.float32).to(device)
@@ -88,15 +96,8 @@ def perform_feature_selection(file_path, selection_method, selection_threshold):
     selected_indices = [i for i, score in enumerate(importance_scores) if score.item() == max_importance]
     selected_feature_names = [feature_names[i] for i in selected_indices]
 
-    # TODO: Hard select the features from the testing to build the model
-    # selected_feature_names = ["datetime_feature", "Tdew (degC)", "rh (%)", "sh (g/kg)", "H2OC (mmol/mol)", "rho (g/m**3)"]
-    # selected_indices = [i for i, name in enumerate(feature_names) if name in selected_feature_names]
+    # Selecting features from the dataset
     selected_feature_data = features[:, selected_indices]
-
-    # Debugging prints
-    print(f"Valid Selected Feature Names: {feature_names}")
-    print(f"Selected Indices: {selected_indices}")
-    print(f"Shape of selected_feature_data: {selected_feature_data.shape}")
 
     final_df = pd.concat([
         data_config['date'],
@@ -104,13 +105,14 @@ def perform_feature_selection(file_path, selection_method, selection_threshold):
         data_config['target']
     ], axis=1)
 
-
     return {
         'selected_features': selected_feature_names,
         'full_dataframe': final_df,
         'date': data_config['date'],
-        'target': data_config['target']
+        'target': data_config['target'],
+        'scalers': data_config['scalers']  # scalers included
     }
+
 
 
 def time_temporal_features_extraction(training_df, features):
@@ -198,6 +200,13 @@ def main():
     actual_values = []
 
     # TODO: add code here for saving the model as pkl file or joblib
+    # Save the trained model
+    torch.save(trainer.model.state_dict(), 'trained_model.pth')
+
+    # Save the scalers (important for feature transformation)
+    joblib.dump(selection_results['scalers'], 'scalers.pkl')
+
+    print("Model and scalers saved successfully!")
 
     # Create dataset for testing
     test_dataset = TimeSeriesDataset(features, targets, sequence_length)
