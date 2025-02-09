@@ -12,7 +12,7 @@ except Exception as e:
     st.error(f"Error loading scalers: {e}")
 
 # Change this to match training input size
-input_size = 9  # Set to match the trained model
+input_size = 6  # Set to match the trained model
 
 
 # Load the trained model
