@@ -1,95 +1,70 @@
 import streamlit as st
-import joblib
 import torch
 import numpy as np
-import pandas as pd
-from mtcn_model import TCNForecaster  # Import the trained model class
+import joblib
+import datetime
+from sklearn.preprocessing import MinMaxScaler
+from mtcn_model import TCNForecaster
 
-# Load scalers
-try:
-    scalers = joblib.load('scalers.pkl')
-    numeric_scaler = scalers['numeric']
-    categorical_scaler = scalers.get('categorical', None)
-    
-    # Retrieve the correct feature names used during training
-    if categorical_scaler:
-        categorical_feature_names = categorical_scaler.get_feature_names_out()  # Get one-hot encoded feature names
-    else:
-        categorical_feature_names = []
-    
-    feature_names = scalers.get('feature_names', [])  # Retrieve stored feature names
-    if not feature_names:
-        feature_names = list(numeric_scaler.feature_names_in_) + list(categorical_feature_names)
+# Load trained model and feature selection details
+model_path = "trained_tcn_model.pt"
+feature_info_path = "feature_selection_info.pkl"
 
-    expected_feature_count = len(feature_names)
+# Load feature selection information
+feature_info = joblib.load(feature_info_path)
+selected_features = feature_info["selected_features"]
+sequence_length = feature_info["sequence_length"]
 
-except Exception as e:
-    st.error(f"Error loading scalers: {e}")
-    st.stop()
+# Define scaler
+scaler = MinMaxScaler()
 
-# Load model metadata (to get correct input size)
-try:
-    metadata = joblib.load('model_metadata.pkl')
-    input_size = metadata['input_size']
-    sequence_length = metadata['sequence_length']
-except Exception as e:
-    st.error(f"Error loading model metadata: {e}")
-    st.stop()
-
-# Initialize the model correctly
-model = TCNForecaster(input_size=input_size, output_size=1, num_channels=[16, 32, 64])
-
-# Load the state_dict properly
-try:
-    model.load_state_dict(torch.load("trained_model.pth", map_location=torch.device('cpu')))
+# Load trained model
+def load_model(input_size, output_size=1, num_channels=[16, 32, 64]):
+    model = TCNForecaster(input_size, output_size, num_channels)
+    model.load_state_dict(torch.load(model_path, map_location=torch.device("cpu")))
     model.eval()
-    st.success("Model loaded successfully!")
-except Exception as e:
-    st.error(f"Error loading model: {e}")
-    st.stop()
+    return model
 
 # Streamlit UI
-st.title("Time Series Temperature Prediction")
-st.write("Enter values to predict temperature.")
+st.title("Time Series Forecasting App")
+st.write("Enter feature values manually along with the date to predict temperature.")
 
-# Ensure feature names match exactly with training
-st.subheader("Feature Inputs")
-user_inputs = {}
+# Date Input (No Time Needed)
+st.subheader("Select Date")
+user_date = st.date_input("Choose a Date", datetime.date.today())
 
-for feature in feature_names:
-    user_inputs[feature] = st.number_input(f"{feature}", value=0.0)
+# Extract temporal features
+day_of_week = user_date.weekday()  # Monday=0, Sunday=6
+week_number = user_date.isocalendar()[1]
+month = user_date.month
 
-# If model expects extra features, add them dynamically
-num_missing_features = input_size - len(feature_names)
+# Create dynamic input fields for numerical features
+st.subheader("Enter Feature Values")
+user_input = {}
+for feature in selected_features:
+    if feature not in ["day_of_week", "week", "month"]:
+        user_input[feature] = st.number_input(f"{feature}", value=0.0, format="%.2f")
 
-if num_missing_features > 0:
-    for i in range(num_missing_features):
-        extra_feature_name = f"Extra Feature {i+1}"
-        user_inputs[extra_feature_name] = st.number_input(extra_feature_name, value=0.0)
+# Predict Button
+if st.button("Predict Temperature"):
+    # Convert input to model format
+    input_values = np.array([user_input[feat] for feat in selected_features if feat not in ["day_of_week", "week", "month"]])
 
-# Convert inputs to NumPy array
-if st.button("Predict"):
-    try:
-        # Convert dictionary values to list (preserve order)
-        input_data = np.array([list(user_inputs.values())]).astype(np.float32)
+    # Append extracted temporal features
+    input_values = np.append(input_values, [day_of_week, week_number, month]).reshape(1, -1)
 
+    # Scale input
+    scaled_input = scaler.fit_transform(input_values)
 
-        # Validate input shape before transforming
-        if input_data.shape[1] != expected_feature_count:
-            st.error(f"Feature mismatch! Expected {expected_feature_count} features, but got {input_data.shape[1]}")
-            st.stop()
+    # Convert to tensor
+    input_tensor = torch.FloatTensor(scaled_input).unsqueeze(0)  # [batch_size, seq_length, num_features]
 
-        # Normalize input using the scaler
-        input_data = numeric_scaler.transform(input_data)
+    # Load model and predict
+    model = load_model(len(selected_features))
+    with torch.no_grad():
+        prediction = model(input_tensor).cpu().numpy().flatten()
 
-        # Convert to tensor
-        input_tensor = torch.FloatTensor(input_data).unsqueeze(0)  # Add batch dimension
-
-        # Predict
-        with torch.no_grad():
-            prediction = model(input_tensor).item()
-
-        st.write(f"Predicted Temperature (T degC): {prediction:.2f}")
-
-    except Exception as e:
-        st.error(f"Prediction error: {e}")
+    # Display results
+    st.subheader("Prediction Result")
+    st.write(f"**Date: {user_date.strftime('%Y-%m-%d')}**")
+    st.write(f"**Predicted Temperature (T in degC): {prediction[0]:.2f}**")

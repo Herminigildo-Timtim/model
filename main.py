@@ -103,7 +103,7 @@ def perform_feature_selection(file_path, selection_method, selection_threshold):
         'full_dataframe': final_df,
         'date': data_config['date'],
         'target': data_config['target'],
-        'scalers': data_config['scalers']  # ✅ Include scalers here
+        'scalers': data_config['scalers'] 
     }
 
 
@@ -166,7 +166,7 @@ def main():
     sequence_length = 30
     num_epochs = 50
     batch_size = 250
-
+    print("features: ", features)
     # Train and predict using modified TCN model
     trainer, history = train_and_predict(
         features=features_tensor,
@@ -194,19 +194,16 @@ def main():
 
     # TODO: add code here for saving the model as pkl file or joblib
     # Save the trained model
-    torch.save(trainer.model.state_dict(), 'trained_model.pth')
+    torch.save(model.state_dict(), "trained_tcn_model.pt")
 
-    # Save model metadata (input size, sequence length)
-    metadata = {
-        'input_size': features_tensor.shape[1],  # Number of input features
-        'sequence_length': sequence_length
+    # Save feature selection details for later use
+    feature_selection_info = {
+        "selected_features": selected_feature_names,
+        "sequence_length": sequence_length
     }
-    joblib.dump(metadata, 'model_metadata.pkl')
+    joblib.dump(feature_selection_info, "feature_selection_info.pkl")
 
-    # Save scalers for feature transformation
-    joblib.dump(selection_results['scalers'], 'scalers.pkl')
-
-    print("Model, scalers, and metadata saved successfully!")
+    print("Model and feature selection details saved successfully.")
 
     # Create dataset for testing
     test_dataset = TimeSeriesDataset(features, targets, sequence_length)
