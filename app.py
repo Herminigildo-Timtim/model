@@ -5,11 +5,22 @@ import numpy as np
 import pandas as pd
 from mtcn_model import TCNForecaster  # Import the trained model class
 
-# Load scalers
+# Load scalers and retrieve feature names
 try:
     scalers = joblib.load('scalers.pkl')
     numeric_scaler = scalers['numeric']
-    feature_names = scalers.get('feature_names', [])  # Retrieve feature names if available
+    categorical_scaler = scalers.get('categorical', None)
+    
+    # Retrieve the correct feature names used during training
+    if categorical_scaler:
+        categorical_feature_names = categorical_scaler.get_feature_names_out()  # Get one-hot encoded feature names
+    else:
+        categorical_feature_names = []
+    
+    feature_names = scalers.get('feature_names', [])  # Retrieve stored feature names
+    if not feature_names:
+        feature_names = list(numeric_scaler.feature_names_in_) + list(categorical_feature_names)
+
 except Exception as e:
     st.error(f"Error loading scalers: {e}")
     st.stop()
@@ -39,11 +50,7 @@ except Exception as e:
 st.title("Time Series Temperature Prediction")
 st.write("Enter values to predict temperature.")
 
-# Auto-detect required features
-if not feature_names:
-    feature_names = ["Tdew (degC)", "rh (%)", "sh (g/kg)", "H2OC (mmol/mol)", "rho (g/m³)", "datetime_feature", "day_of_week", "week", "month"]
-
-# Allow dynamic user input for detected features
+# Ensure feature names match exactly with training
 st.subheader("Feature Inputs")
 user_inputs = {}
 
