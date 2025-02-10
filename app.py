@@ -9,6 +9,7 @@ from mtcn_model import TCNForecaster  # Import the trained model class
 try:
     scalers = joblib.load('scalers.pkl')
     numeric_scaler = scalers['numeric']
+    feature_names = scalers.get('feature_names', [])  # Retrieve feature names if available
 except Exception as e:
     st.error(f"Error loading scalers: {e}")
     st.stop()
@@ -38,30 +39,35 @@ except Exception as e:
 st.title("Time Series Temperature Prediction")
 st.write("Enter values to predict temperature.")
 
-# Feature inputs
+# Auto-detect required features
+if not feature_names:
+    feature_names = ["Tdew (degC)", "rh (%)", "sh (g/kg)", "H2OC (mmol/mol)", "rho (g/m³)", "datetime_feature", "day_of_week", "week", "month"]
+
+# Allow dynamic user input for detected features
 st.subheader("Feature Inputs")
+user_inputs = {}
 
-datetime_feature = st.number_input("Datetime Feature (hours since start)", value=0.0)
-Tdew = st.number_input("Tdew (degC)", value=0.0)
-rh = st.number_input("Relative Humidity (%)", value=0.0)
-sh = st.number_input("Specific Humidity (g/kg)", value=0.0)
-H2OC = st.number_input("H2OC (mmol/mol)", value=0.0)
-rho = st.number_input("Density (g/m³)", value=0.0)
+for feature in feature_names:
+    user_inputs[feature] = st.number_input(f"{feature}", value=0.0)
 
-# Temporal features
-day_of_week = (datetime_feature // 24) % 7  # Approximate day of the week
-week = (datetime_feature // (24 * 7)) % 52  # Approximate week
-month = (datetime_feature // (24 * 30)) % 12  # Approximate month
+# If model expects extra features, add them dynamically
+num_missing_features = input_size - len(feature_names)
 
-# Handle extra features dynamically
-num_missing_features = input_size - 9  # Adjust dynamically
-extra_features = [st.number_input(f"Extra Feature {i+1}", value=0.0) for i in range(num_missing_features)]
+if num_missing_features > 0:
+    for i in range(num_missing_features):
+        extra_feature_name = f"Extra Feature {i+1}"
+        user_inputs[extra_feature_name] = st.number_input(extra_feature_name, value=0.0)
 
-# Prepare input
+# Convert inputs to NumPy array
 if st.button("Predict"):
     try:
-        # Construct input array in correct order
-        input_data = np.array([[Tdew, rh, sh, H2OC, rho, datetime_feature, day_of_week, week, month] + extra_features]).astype(np.float32)
+        # Convert dictionary values to list (preserve order)
+        input_data = np.array([list(user_inputs.values())]).astype(np.float32)
+
+        # Validate input shape before transforming
+        if input_data.shape[1] != input_size:
+            st.error(f"Feature mismatch! Expected {input_size} features, but got {input_data.shape[1]}")
+            st.stop()
 
         # Normalize input using the scaler
         input_data = numeric_scaler.transform(input_data)
