@@ -107,14 +107,13 @@ def perform_feature_selection(file_path, selection_method, selection_threshold):
     }
 
 
-
 def time_temporal_features_extraction(training_df, features):
     features['day_of_week'] = training_df['Date Time'].dt.dayofweek
     features['week'] = training_df['Date Time'].dt.isocalendar().week
     features['month'] = training_df['Date Time'].dt.month
 
     return features
-    
+
 
 def collate_fn(batch):
     inputs = [item['inputs'] for item in batch]
@@ -134,7 +133,6 @@ def main():
 
     # Get selected features and preprocessed data
     selection_results = perform_feature_selection(file_path, 'importance', 0.5)
-    # selection_results = ["Date Time", "Tdew (degC)", "rh (%)", "sh (g/kg)", "H20C (mmol/mol)", "rho (g/m**3)"]
     training_df = selection_results['full_dataframe']
     training_df.ffill(inplace=True)
 
@@ -152,21 +150,36 @@ def main():
     selected_feature_names = selection_results['selected_features'] + ['day_of_week', 'week', 'month']
 
     # Prepare features and target
-    features = training_df[selected_feature_names].values  # Now includes temporal features
+    features = training_df[selected_feature_names].values  # ✅ Now includes temporal features
     targets = training_df['T (degC)'].values
 
     # Ensure all features are numerical
     features = features.astype(np.float32)
 
+    # ✅ Train MinMaxScaler only on the selected 11 features
+    scaler = MinMaxScaler()
+    features_scaled = scaler.fit_transform(features)  # ✅ Now only 11 features are scaled
+
+    # ✅ Save corrected MinMaxScaler & feature names
+    scaler_dict = {
+        "numeric": scaler,
+        "feature_names": selected_feature_names  # ✅ Save feature names for reference
+    }
+    joblib.dump(scaler_dict, "scalers.pkl")
+
+    print(f"✅ Corrected MinMaxScaler saved with {features_scaled.shape[1]} features.")
+
     # Convert to PyTorch tensors
-    features_tensor = torch.FloatTensor(features)
+    features_tensor = torch.FloatTensor(features_scaled)
     targets_tensor = torch.FloatTensor(targets)
 
     # Training parameters
     sequence_length = 30
     num_epochs = 50
     batch_size = 250
-    print("features: ", features)
+
+    print("features: ", features_scaled)
+
     # Train and predict using modified TCN model
     trainer, history = train_and_predict(
         features=features_tensor,
@@ -176,25 +189,8 @@ def main():
         batch_size=batch_size
     )
 
-    # Plot training history
-    plt.figure(figsize=(12, 6))
-    plt.plot(history['train_loss'], label='Train Loss')
-    plt.plot(history['val_loss'], label='Validation Loss')
-    plt.title('Training and Validation Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.show()
-
-    # Make predictions
-    model = trainer.model
-    model.eval()
-    predictions = []
-    actual_values = []
-
-    # TODO: add code here for saving the model as pkl file or joblib
     # Save the trained model
-    torch.save(model.state_dict(), "trained_tcn_model.pt")
+    torch.save(trainer.model.state_dict(), "trained_tcn_model.pt")
 
     # Save feature selection details for later use
     feature_selection_info = {
@@ -205,38 +201,6 @@ def main():
 
     print("Model and feature selection details saved successfully.")
 
-    # Create dataset for testing
-    test_dataset = TimeSeriesDataset(features, targets, sequence_length)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-
-    with torch.no_grad():
-        for batch_x, batch_y in test_loader:
-            batch_x = batch_x.to(trainer.device)
-            outputs = model(batch_x)
-            predictions.append(outputs.cpu().numpy().flatten())
-            actual_values.append(batch_y.numpy().flatten())
-
-    predictions = np.concatenate(predictions)
-    actual_values = np.concatenate(actual_values)
-
-    # Plot predictions vs actual values
-    plt.figure(figsize=(12, 6))
-    plt.plot(actual_values, label='Actual')
-    plt.plot(predictions, label='Predicted', linestyle='--')
-    plt.title('Actual vs Predicted T (degC)')
-    plt.xlabel('Time Steps')
-    plt.ylabel('T (degC)')
-    plt.legend()
-    plt.show()
-
-    # Print some sample predictions
-    print("\nSample Predictions:")
-    for i in range(10):
-        print(f"Actual: {actual_values[i]:.4f}, Predicted: {predictions[i]:.4f}")
-
 
 if __name__ == "__main__":
     main()
-
-
-# TODO: Add a code for deployment to streamlit, you can have it in another file
