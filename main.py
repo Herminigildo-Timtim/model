@@ -89,15 +89,8 @@ def perform_feature_selection(file_path, selection_method, selection_threshold):
     selected_indices = [i for i, score in enumerate(importance_scores) if score.item() == max_importance]
     selected_feature_names = [feature_names[i] for i in selected_indices]
 
-    # TODO: Hard select the features from the testing to build the model
-    # selected_feature_names = ["datetime_feature", "Tdew (degC)", "rh (%)", "sh (g/kg)", "H2OC (mmol/mol)", "rho (g/m**3)"]
-    # selected_indices = [i for i, name in enumerate(feature_names) if name in selected_feature_names]
+    # Select features from the dataset
     selected_feature_data = features[:, selected_indices]
-
-    # Debugging prints
-    print(f"Valid Selected Feature Names: {feature_names}")
-    print(f"Selected Indices: {selected_indices}")
-    print(f"Shape of selected_feature_data: {selected_feature_data.shape}")
 
     final_df = pd.concat([
         data_config['date'],
@@ -105,13 +98,14 @@ def perform_feature_selection(file_path, selection_method, selection_threshold):
         data_config['target']
     ], axis=1)
 
-
     return {
         'selected_features': selected_feature_names,
         'full_dataframe': final_df,
         'date': data_config['date'],
-        'target': data_config['target']
+        'target': data_config['target'],
+        'scalers': data_config['scalers']  # ✅ Include scalers here
     }
+
 
 
 def time_temporal_features_extraction(training_df, features):
