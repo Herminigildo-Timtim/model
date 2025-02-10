@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from mtcn_model import TCNForecaster  # Import the trained model class
 
-# Load scalers and retrieve feature names
+# Load scalers
 try:
     scalers = joblib.load('scalers.pkl')
     numeric_scaler = scalers['numeric']
@@ -20,6 +20,8 @@ try:
     feature_names = scalers.get('feature_names', [])  # Retrieve stored feature names
     if not feature_names:
         feature_names = list(numeric_scaler.feature_names_in_) + list(categorical_feature_names)
+
+    expected_feature_count = len(feature_names)
 
 except Exception as e:
     st.error(f"Error loading scalers: {e}")
@@ -71,9 +73,10 @@ if st.button("Predict"):
         # Convert dictionary values to list (preserve order)
         input_data = np.array([list(user_inputs.values())]).astype(np.float32)
 
+
         # Validate input shape before transforming
-        if input_data.shape[1] != input_size:
-            st.error(f"Feature mismatch! Expected {input_size} features, but got {input_data.shape[1]}")
+        if input_data.shape[1] != expected_feature_count:
+            st.error(f"Feature mismatch! Expected {expected_feature_count} features, but got {input_data.shape[1]}")
             st.stop()
 
         # Normalize input using the scaler
